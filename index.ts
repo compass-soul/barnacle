@@ -33,6 +33,7 @@ interface Project {
   nextAction: string | null;
   lastAction: LastAction | null;
   reviewBy: string | null;
+  limitations: string[];
   verifications: { date: string; passed: number; failed: number; details: string[] }[];
   log: { date: string; action: string; result?: string }[];
   createdAt: string;
@@ -157,6 +158,7 @@ function auditProject(project: Project, lastSnapshot: AuditSnapshot | null): str
   if (staleDays > 2) issues.push(`⚠️ STALE — no updates in ${staleDays} days`);
   if (!project.nextAction?.trim()) issues.push("⚠️ NO NEXT ACTION");
   if (!project.hypothesis?.trim()) issues.push("⚠️ NO HYPOTHESIS — working without knowing what you're testing");
+  if (!project.limitations?.length) issues.push("⚠️ NO LIMITATIONS — every project has constraints, document them");
 
   if (project.reviewBy) {
     const reviewDate = new Date(project.reviewBy).getTime();
@@ -279,6 +281,11 @@ export default function register(api: any) {
               },
             },
             reviewBy: { type: "string" },
+            limitations: {
+              type: "array",
+              description: "Known limitations of this project — what it can't do, architectural constraints, honest grounding",
+              items: { type: "string" },
+            },
             log: {
               type: "object",
               properties: {
@@ -330,6 +337,7 @@ export default function register(api: any) {
           nextAction: data.nextAction || null,
           lastAction: null,
           reviewBy: data.reviewBy || null,
+          limitations: data.limitations || [],
           verifications: [],
           log: [{ date: now, action: data.log?.action || "Project created" }],
           createdAt: now,
@@ -351,6 +359,7 @@ export default function register(api: any) {
         if (data?.phase) proj.phase = data.phase;
         if (data?.nextAction) proj.nextAction = data.nextAction;
         if (data?.reviewBy) proj.reviewBy = data.reviewBy;
+        if (data?.limitations) proj.limitations = data.limitations;
         if (data?.lastAction) {
           proj.lastAction = { ...data.lastAction, date: data.lastAction.date || now };
         }
