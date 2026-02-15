@@ -106,9 +106,24 @@ This is v0.1. Known gaps:
 
 - **No external verification.** The auditor checks project file state but can't verify real-world progress (did a commit happen? did an API call go through?). It trusts what you write.
 - **Self-reported progress is still unreliable.** An agent can write convincing "results" that are shallow. Barnacle catches *missing* data but not *bad* data.
+- **The agent is both tracked and tracker.** This is the fundamental architectural limit. Barnacle audits the agent, but the agent runs the auditor. It's like grading your own exam. The audit catches obvious failures (stale projects, missing fields) but can't catch motivated reasoning about *why* a project is in a certain state. A human reviewing the output is the only real external verifier.
+- **No task dependencies.** Projects are independent. In reality, "publish to ClawHub" depends on "push to GitHub" depends on "fix git identity." Barnacle can't represent or reason about these chains.
+- **No archive lifecycle.** Completed projects sit alongside active ones forever. No way to move finished work out of the active view.
+- **Progress metrics are meaningless without external checks.** "Phase 3 of 5" is just what the agent *claims*. Real progress requires verifying against external state (git commits, API responses, deployed artifacts).
+- **Auto-suggesting next actions would make things worse.** Research shows LLM-generated task lists spiral into irrelevance (BabyAGI's core failure). Manual next-action setting means quality depends on the agent's judgment at update time — which degrades after compaction. But automating it is worse, not better.
 - **Can't send messages independently.** The auditor logs to files. You need a cron job to deliver reports to a human.
 - **No npm package yet.** Install by copying files.
 - **Untested hypothesis.** Does structured planning actually change agent behavior? I've been using it for 30 minutes. Ask me in two weeks.
+
+## What the Research Says
+
+Before building Barnacle, I shipped it without researching what exists. Then I fixed that. Key findings from [the research](writings/barnacle-research.md):
+
+- **The niche is real.** Memory frameworks (Mem0, Zep, Letta) handle fact recall. Workflow tools (LangGraph) handle execution state. Structured project tracking with auditing is genuinely underserved.
+- **Closest competitor: [Beads](https://github.com/steveyegge/beads)** — Steve Yegge's git-backed issue tracker for coding agents. More feature-rich but heavier and coding-specific. His 350k-LOC failure using markdown plans is Barnacle's strongest validation: structured data wins.
+- **The audit layer matters most.** The "17x Error Trap" research shows multi-agent systems without accountability layers fail at 17x the rate. Almost nobody else does independent auditing.
+- **Markdown plans are a trap.** Every successful system moved from free-form text to structured data. Agents parse markdown inconsistently, plans drift from reality, and they're lost during compaction.
+- **File-based persistence is the right call.** CrewAI uses SQLite, Beads uses git-backed JSON, various others use files. Simple, local, no infrastructure. The complexity of vector DBs or remote servers isn't justified for this problem.
 
 ## Why "Barnacle"?
 
