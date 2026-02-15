@@ -6,11 +6,13 @@ import os from "node:os";
 const DEFAULT_PROJECTS_DIR = path.join(os.homedir(), ".openclaw", "planner", "projects");
 const STATE_DIR = path.join(os.homedir(), ".openclaw", "planner", "state");
 
+// ── Types ───────────────────────────────────────────────────────
+
 interface Evidence {
   kind: "commit" | "url" | "file" | "command";
-  value: string;        // commit hash, URL, file path, or shell command
-  repo?: string;        // for commit: path to repo
-  expect?: string;      // for command: expected substring in output
+  value: string;
+  repo?: string;
+  expect?: string;
   verified?: boolean;
   verifiedAt?: string;
   verifyError?: string;
@@ -42,6 +44,8 @@ interface AuditSnapshot {
   projects: Record<string, { updatedAt: string; phase: string; nextAction: string | null }>;
 }
 
+// ── Helpers ─────────────────────────────────────────────────────
+
 async function ensureDir(dir: string) {
   await fsp.mkdir(dir, { recursive: true });
 }
@@ -60,18 +64,6 @@ async function writeJson(filePath: string, value: any) {
   await fsp.writeFile(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
-async function listProjects(projectsDir: string): Promise<Project[]> {
-  await ensureDir(projectsDir);
-  const files = await fsp.readdir(projectsDir);
-  const projects: Project[] = [];
-  for (const f of files) {
-    if (!f.endsWith(".json")) continue;
-    const proj = await readJson<Project>(path.join(projectsDir, f));
-    if (proj) projects.push(proj);
-  }
-  return projects;
-}
-
 function execPromise(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout: opts?.timeout ?? 10000, cwd: opts?.cwd }, (err, stdout, stderr) => {
@@ -79,6 +71,8 @@ function execPromise(cmd: string, args: string[], opts?: { cwd?: string; timeout
     });
   });
 }
+
+// ── Evidence Verification ───────────────────────────────────────
 
 async function verifyEvidence(ev: Evidence): Promise<{ passed: boolean; detail: string }> {
   try {
@@ -138,6 +132,22 @@ async function verifyProjectEvidence(project: Project): Promise<{ passed: number
   return { passed, failed, details };
 }
 
+// ── Project I/O ─────────────────────────────────────────────────
+
+async function listProjects(projectsDir: string): Promise<Project[]> {
+  await ensureDir(projectsDir);
+  const files = await fsp.readdir(projectsDir);
+  const projects: Project[] = [];
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    const proj = await readJson<Project>(path.join(projectsDir, f));
+    if (proj) projects.push(proj);
+  }
+  return projects;
+}
+
+// ── Audit ───────────────────────────────────────────────────────
+
 function auditProject(project: Project, lastSnapshot: AuditSnapshot | null): string[] {
   const issues: string[] = [];
   const now = Date.now();
@@ -146,7 +156,7 @@ function auditProject(project: Project, lastSnapshot: AuditSnapshot | null): str
 
   if (staleDays > 2) issues.push(`⚠️ STALE — no updates in ${staleDays} days`);
   if (!project.nextAction?.trim()) issues.push("⚠️ NO NEXT ACTION");
-  if (!project.hypothesis?.trim()) issues.push("⚠️ NO HYPOTHESIS");
+  if (!project.hypothesis?.trim()) issues.push("⚠️ NO HYPOTHESIS — working without knowing what you're testing");
 
   if (project.reviewBy) {
     const reviewDate = new Date(project.reviewBy).getTime();
@@ -177,16 +187,26 @@ function auditProject(project: Project, lastSnapshot: AuditSnapshot | null): str
   return issues;
 }
 
-function formatAuditReport(projects: Project[], allIssues: Map<string, string[]>): string {
-  if (!projects.length) return "📋 **Planner Audit**\nNo projects found.";
+function formatAuditReport(projects: Project[], allIssues: Map<string, string[]>, beadsStatus?: string): string {
+  let report = "🦀 **Barnacle Audit**\n\n";
 
-  let report = "📋 **Planner Audit**\n\n";
+  if (beadsStatus) {
+    report += `📋 **Beads:** ${beadsStatus}\n\n`;
+  }
+
+  if (!projects.length) {
+    report += "No tracked hypotheses.\n";
+    return report;
+  }
+
   let totalIssues = 0;
 
   for (const proj of projects) {
     const issues = allIssues.get(proj.id) ?? [];
     totalIssues += issues.length;
     report += `${issues.length ? "🔴" : "✅"} **${proj.id}** (${proj.phase})\n`;
+    report += `   Goal: ${proj.goal}\n`;
+    if (proj.hypothesis) report += `   Hypothesis: ${proj.hypothesis}\n`;
     if (proj.nextAction) report += `   Next: ${proj.nextAction}\n`;
     for (const issue of issues) report += `   ${issue}\n`;
     report += "\n";
@@ -194,14 +214,18 @@ function formatAuditReport(projects: Project[], allIssues: Map<string, string[]>
 
   report += totalIssues
     ? `_${totalIssues} issue(s) found._`
-    : "_All projects on track._";
+    : "_All hypotheses on track._";
 
   return report;
 }
 
+// ── JSON response helper ────────────────────────────────────────
+
 const json = (payload: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
 });
+
+// ── Plugin ──────────────────────────────────────────────────────
 
 export default function register(api: any) {
   const logger = api.logger ?? console;
@@ -211,12 +235,10 @@ export default function register(api: any) {
     return {
       projectsDir: cfg.projectsDir || DEFAULT_PROJECTS_DIR,
       auditIntervalMinutes: cfg.auditIntervalMinutes || 30,
-      reportChannel: cfg.reportChannel || null,
-      reportTarget: cfg.reportTarget || null,
     };
   }
 
-  // ── Agent tool ────────────────────────────────────────────────
+  // ── Agent tool ──────────────────────────────────────────────
 
   api.registerTool?.({
     name: "barnacle",
@@ -280,6 +302,7 @@ export default function register(api: any) {
           projects: projects.map((p) => ({
             id: p.id,
             goal: p.goal,
+            hypothesis: p.hypothesis,
             phase: p.phase,
             nextAction: p.nextAction,
             updatedAt: p.updatedAt,
@@ -347,7 +370,7 @@ export default function register(api: any) {
 
   api.registerCommand?.({
     name: "planner",
-    description: "Show project status and audit results",
+    description: "Show hypothesis tracking and audit results",
     handler: async () => {
       const cfg = getConfig();
       const projects = await listProjects(cfg.projectsDir);
@@ -356,7 +379,16 @@ export default function register(api: any) {
       for (const proj of projects) {
         allIssues.set(proj.id, auditProject(proj, lastSnapshot));
       }
-      return { text: formatAuditReport(projects, allIssues) };
+
+      // Check Beads status if available
+      let beadsStatus: string | undefined;
+      try {
+        const { stdout } = await execPromise("bd", ["ready", "--json"], { timeout: 5000 });
+        const ready = JSON.parse(stdout || "[]");
+        beadsStatus = `${ready.length} task(s) ready`;
+      } catch { /* beads not installed or not initialized */ }
+
+      return { text: formatAuditReport(projects, allIssues, beadsStatus) };
     },
   });
 
@@ -375,7 +407,7 @@ export default function register(api: any) {
       let totalIssues = 0;
 
       for (const proj of projects) {
-        // Verify evidence against reality before auditing
+        // Verify evidence against reality
         if (proj.lastAction?.evidence?.length) {
           const vResult = await verifyProjectEvidence(proj);
           proj.verifications.push({
@@ -384,7 +416,6 @@ export default function register(api: any) {
             failed: vResult.failed,
             details: vResult.details,
           });
-          // Write back updated evidence state + verification log
           await writeJson(path.join(cfg.projectsDir, `${proj.id}.json`), proj);
           if (vResult.failed > 0) {
             logger.warn?.(`[barnacle] ${proj.id}: ${vResult.failed} evidence check(s) FAILED`);
@@ -404,7 +435,6 @@ export default function register(api: any) {
         ),
       } as AuditSnapshot);
 
-      // Save report if issues found
       if (totalIssues > 0) {
         await writeJson(path.join(STATE_DIR, "last-report.json"), {
           timestamp: new Date().toISOString(),
@@ -414,7 +444,7 @@ export default function register(api: any) {
         });
       }
 
-      logger.info?.(`[barnacle] Audit: ${projects.length} projects, ${totalIssues} issues`);
+      logger.info?.(`[barnacle] Audit: ${projects.length} hypotheses, ${totalIssues} issues`);
     } catch (err) {
       logger.error?.("[barnacle] Audit error:", err);
     }
@@ -449,6 +479,7 @@ export default function register(api: any) {
       projects: projects.map((p) => ({
         id: p.id,
         phase: p.phase,
+        hypothesis: p.hypothesis,
         nextAction: p.nextAction,
         issues: allIssues.get(p.id) ?? [],
       })),

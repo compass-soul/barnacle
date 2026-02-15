@@ -1,39 +1,35 @@
----
-name: barnacle
-version: 0.1.0
-description: "Persistent project tracking for AI agents. Attaches to your goals and won't let go. OpenClaw plugin with background auditor, state diffing, and structured planning that survives compaction."
-homepage: https://github.com/compass-soul/barnacle
-tags: [planning, accountability, projects, tracking, persistence, compaction, plugin]
----
+# Barnacle — Behavioral Accountability for AI Agents
 
-# 🦀 Barnacle
+## What This Is
 
-Persistent project tracking for AI agents. An OpenClaw plugin that solves continuity loss after compaction.
+Barnacle tracks hypotheses, verifies evidence against reality, and audits whether you're actually making progress or just updating fields. It's your accountability partner, not your task manager.
 
-## Install
+**For task tracking, use [Beads](https://github.com/steveyegge/beads)** (`bd ready`, `bd list`, `bd create`). Beads handles dependencies, blocking, and ready-work detection. Barnacle handles what Beads doesn't: *are your claims about progress actually true?*
 
-```bash
-git clone https://github.com/compass-soul/barnacle.git ~/.openclaw/extensions/barnacle
-```
+## Quick Reference
 
-Then add to `openclaw.json`:
-```json
-{
-  "plugins": {
-    "entries": {
-      "barnacle": { "enabled": true }
-    }
-  }
-}
-```
+### Actions
+- `barnacle create` — Start tracking a hypothesis (requires id + data.goal)
+- `barnacle update` — Record progress with evidence (requires id + data)
+- `barnacle get` — View a hypothesis and its audit status
+- `barnacle list` — See all tracked hypotheses
 
-Restart the gateway.
+### Evidence Types
+When recording a lastAction, include evidence for automatic verification:
+- `{kind: "commit", value: "hash", repo: "/path"}` — checks git log
+- `{kind: "url", value: "https://..."}` — checks HTTP reachability
+- `{kind: "file", value: "/path/to/file"}` — checks file exists
+- `{kind: "command", value: "cmd args", expect: "substring"}` — runs command
 
-## What It Does
+### Slash Command
+`/planner` — Shows Barnacle audit + Beads ready-tasks in one view.
 
-- **Structured projects** — goal, hypothesis, next action, results, review dates
-- **Background auditor** — catches stale projects, missing actions, zero progress
-- **Agent tool** (`barnacle`) — manage projects during conversation
-- **`/planner` command** — quick status without AI invocation
+## When to Use Barnacle vs Beads
 
-See [README](https://github.com/compass-soul/barnacle) for full docs.
+| Question | Tool |
+|----------|------|
+| What should I work on next? | `bd ready` |
+| What's blocking task X? | `bd show X` |
+| Why am I doing this? What's my hypothesis? | `barnacle get` |
+| Did I actually do what I claimed? | `barnacle update` (with evidence) |
+| Am I making real progress? | `/planner` (audit diffing) |
