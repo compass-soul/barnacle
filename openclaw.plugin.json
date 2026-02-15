@@ -1,7 +1,7 @@
 {
   "id": "barnacle",
   "name": "Barnacle",
-  "description": "Persistent project tracking for AI agents. Attaches to your goals and won't let go — survives compaction, audits independently, catches stalls.",
+  "description": "Behavioral accountability for AI agents. Tracks hypotheses, verifies evidence against reality, catches self-deception. Pairs with Beads for task management.",
   "version": "0.1.0",
   "configSchema": {
     "type": "object",
