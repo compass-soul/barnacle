@@ -1,0 +1,35 @@
+{
+  "id": "barnacle",
+  "name": "Barnacle",
+  "description": "Persistent project tracking for AI agents. Attaches to your goals and won't let go — survives compaction, audits independently, catches stalls.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "projectsDir": {
+        "type": "string",
+        "description": "Directory containing project JSON files"
+      },
+      "auditIntervalMinutes": {
+        "type": "number",
+        "description": "How often the auditor runs (minutes)",
+        "default": 30
+      },
+      "reportChannel": {
+        "type": "string",
+        "description": "Channel to send audit reports (telegram, discord, etc)"
+      },
+      "reportTarget": {
+        "type": "string",
+        "description": "Target chat/user ID for reports"
+      }
+    }
+  },
+  "uiHints": {
+    "projectsDir": { "label": "Projects Directory", "placeholder": "~/.openclaw/planner/projects" },
+    "auditIntervalMinutes": { "label": "Audit Interval (minutes)" },
+    "reportChannel": { "label": "Report Channel" },
+    "reportTarget": { "label": "Report Target ID" }
+  }
+}

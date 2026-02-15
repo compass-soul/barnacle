@@ -1,0 +1,10 @@
+{
+  "name": "@compass-soul/barnacle",
+  "version": "0.1.0",
+  "description": "Persistent project tracking for AI agents. Attaches to your goals and won't let go.",
+  "license": "MIT",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  },
+  "keywords": ["openclaw", "plugin", "planning", "agent", "accountability", "barnacle"]
+}
