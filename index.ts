@@ -435,13 +435,28 @@ export default function register(api: any) {
         ),
       } as AuditSnapshot);
 
-      if (totalIssues > 0) {
-        await writeJson(path.join(STATE_DIR, "last-report.json"), {
+      // Always write report (even if no issues — absence of issues is data)
+      await writeJson(path.join(STATE_DIR, "last-report.json"), {
+        timestamp: new Date().toISOString(),
+        report: formatAuditReport(projects, allIssues),
+        totalIssues,
+        projectCount: projects.length,
+      });
+
+      // Write alert file when evidence fails or critical issues found
+      // External cron/heartbeat reads this and escalates to human
+      const criticalIssues = [...allIssues.values()].flat().filter(i => i.startsWith("🔴"));
+      if (criticalIssues.length > 0) {
+        await writeJson(path.join(STATE_DIR, "alert.json"), {
           timestamp: new Date().toISOString(),
+          level: "critical",
+          issues: criticalIssues,
           report: formatAuditReport(projects, allIssues),
-          totalIssues,
-          projectCount: projects.length,
         });
+        logger.warn?.(`[barnacle] 🔴 CRITICAL: ${criticalIssues.length} evidence failure(s) — alert written`);
+      } else {
+        // Clear alert if no critical issues
+        try { await fsp.unlink(path.join(STATE_DIR, "alert.json")); } catch {}
       }
 
       logger.info?.(`[barnacle] Audit: ${projects.length} hypotheses, ${totalIssues} issues`);

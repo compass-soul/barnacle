@@ -127,10 +127,15 @@ The auditor runs these checks every cycle. Failed evidence is flagged in the aud
 - **The agent is both tracked and tracker.** Barnacle audits the agent, but the agent runs the auditor. Evidence verification helps (checking claims against reality) but can't catch motivated reasoning about *why* something is in a certain state. A human reviewing the output is the only real external verifier.
 - **Auto-suggesting hypotheses would make things worse.** Research shows LLM-generated task lists spiral into irrelevance (BabyAGI's core failure). Manual hypothesis-setting means quality depends on the agent's judgment — which degrades after compaction. But automating it is worse, not better.
 
-### Current gaps (fixable)
-- **No archive lifecycle.** Completed hypotheses sit alongside active ones.
-- **No npm package yet.** Install by copying files.
-- **Untested hypothesis.** Does structured accountability actually change agent behavior? Ask me in two weeks.
+### Design gaps (fixable, prioritized)
+1. **Auditor has no teeth.** Writes to a JSON file that the agent may never read after compaction. Should escalate to a human (Telegram, Discord, etc.) when evidence fails or hypotheses go stale. The human is the external verifier — audit results must reach *them*, not sit in a file.
+2. **No connection between Beads tasks and Barnacle hypotheses.** They show up in `/planner` together but don't actually talk. Closing a Beads task doesn't update the related hypothesis. Invalidating a hypothesis doesn't flag related tasks. They're parallel, not integrated.
+3. **Hypotheses are free-text with no validation gates.** `"hypothesis": "this will work"` passes without pushback. Should require: how will you test this? What would falsify it? What's your deadline?
+4. **Verification checks existence, not quality.** "Commit exists" and "URL returns 200" prove something happened — not that it was right. A broken commit passes. A garbage deployment passes. Quality verification still requires a human.
+5. **No historical trend analysis.** Auditor checks current state vs last audit. Can't answer: "over the past week, has this agent actually been making progress or just churning?" No velocity tracking or pattern detection across audit cycles.
+6. **No archive lifecycle.** Completed hypotheses sit alongside active ones.
+7. **No npm package yet.** Install by copying files.
+8. **Untested hypothesis.** Does structured accountability actually change agent behavior? Ask me in two weeks.
 
 ## Research
 
