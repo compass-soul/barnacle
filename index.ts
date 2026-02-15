@@ -1,9 +1,27 @@
 import { promises as fsp } from "node:fs";
+import { execFile } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 
 const DEFAULT_PROJECTS_DIR = path.join(os.homedir(), ".openclaw", "planner", "projects");
 const STATE_DIR = path.join(os.homedir(), ".openclaw", "planner", "state");
+
+interface Evidence {
+  kind: "commit" | "url" | "file" | "command";
+  value: string;        // commit hash, URL, file path, or shell command
+  repo?: string;        // for commit: path to repo
+  expect?: string;      // for command: expected substring in output
+  verified?: boolean;
+  verifiedAt?: string;
+  verifyError?: string;
+}
+
+interface LastAction {
+  description: string;
+  result: string;
+  date: string;
+  evidence?: Evidence[];
+}
 
 interface Project {
   id: string;
@@ -11,9 +29,9 @@ interface Project {
   hypothesis: string | null;
   phase: string;
   nextAction: string | null;
-  lastAction: { description: string; result: string; date: string } | null;
+  lastAction: LastAction | null;
   reviewBy: string | null;
-  verifications: any[];
+  verifications: { date: string; passed: number; failed: number; details: string[] }[];
   log: { date: string; action: string; result?: string }[];
   createdAt: string;
   updatedAt: string;
@@ -54,6 +72,72 @@ async function listProjects(projectsDir: string): Promise<Project[]> {
   return projects;
 }
 
+function execPromise(cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: opts?.timeout ?? 10000, cwd: opts?.cwd }, (err, stdout, stderr) => {
+      resolve({ stdout: stdout?.toString() ?? "", stderr: stderr?.toString() ?? "", code: err ? (err as any).code ?? 1 : 0 });
+    });
+  });
+}
+
+async function verifyEvidence(ev: Evidence): Promise<{ passed: boolean; detail: string }> {
+  try {
+    switch (ev.kind) {
+      case "commit": {
+        const repo = ev.repo || ".";
+        const { stdout, code } = await execPromise("git", ["log", "--oneline", "-1", ev.value], { cwd: repo });
+        if (code !== 0 || !stdout.trim()) return { passed: false, detail: `Commit ${ev.value.slice(0, 8)} not found in ${repo}` };
+        return { passed: true, detail: `Commit ${ev.value.slice(0, 8)} verified: ${stdout.trim()}` };
+      }
+      case "url": {
+        const { code } = await execPromise("curl", ["-sfIL", "--max-time", "5", "-o", "/dev/null", "-w", "%{http_code}", ev.value]);
+        if (code !== 0) return { passed: false, detail: `URL unreachable: ${ev.value}` };
+        return { passed: true, detail: `URL reachable: ${ev.value}` };
+      }
+      case "file": {
+        try {
+          await fsp.access(ev.value);
+          return { passed: true, detail: `File exists: ${ev.value}` };
+        } catch {
+          return { passed: false, detail: `File missing: ${ev.value}` };
+        }
+      }
+      case "command": {
+        const parts = ev.value.split(" ");
+        const { stdout, code } = await execPromise(parts[0], parts.slice(1));
+        if (code !== 0) return { passed: false, detail: `Command failed: ${ev.value}` };
+        if (ev.expect && !stdout.includes(ev.expect)) {
+          return { passed: false, detail: `Command output missing expected "${ev.expect}"` };
+        }
+        return { passed: true, detail: `Command passed: ${ev.value}` };
+      }
+      default:
+        return { passed: false, detail: `Unknown evidence kind: ${(ev as any).kind}` };
+    }
+  } catch (err: any) {
+    return { passed: false, detail: `Verification error: ${err.message}` };
+  }
+}
+
+async function verifyProjectEvidence(project: Project): Promise<{ passed: number; failed: number; details: string[] }> {
+  const evidence = project.lastAction?.evidence;
+  if (!evidence?.length) return { passed: 0, failed: 0, details: [] };
+
+  let passed = 0, failed = 0;
+  const details: string[] = [];
+
+  for (const ev of evidence) {
+    const result = await verifyEvidence(ev);
+    ev.verified = result.passed;
+    ev.verifiedAt = new Date().toISOString();
+    if (!result.passed) ev.verifyError = result.detail;
+    if (result.passed) passed++; else failed++;
+    details.push(`${result.passed ? "✅" : "❌"} ${result.detail}`);
+  }
+
+  return { passed, failed, details };
+}
+
 function auditProject(project: Project, lastSnapshot: AuditSnapshot | null): string[] {
   const issues: string[] = [];
   const now = Date.now();
@@ -79,6 +163,15 @@ function auditProject(project: Project, lastSnapshot: AuditSnapshot | null): str
   if (!project.log?.length) issues.push("⚠️ EMPTY LOG");
   if (project.lastAction && !project.lastAction.result?.trim()) {
     issues.push("⚠️ LAST ACTION HAS NO RESULT");
+  }
+
+  // Evidence checks
+  if (project.lastAction && !project.lastAction.evidence?.length) {
+    issues.push("⚠️ NO EVIDENCE — last action has no verifiable proof");
+  }
+  const failedEvidence = project.lastAction?.evidence?.filter((e) => e.verified === false);
+  if (failedEvidence?.length) {
+    issues.push(`🔴 EVIDENCE FAILED — ${failedEvidence.length} check(s) did not pass`);
   }
 
   return issues;
@@ -128,7 +221,7 @@ export default function register(api: any) {
   api.registerTool?.({
     name: "barnacle",
     description:
-      "Structured planning that survives compaction. Track goals, hypotheses, actions, and results. Independently audited. Actions: create, update, get, list.",
+      "Structured planning that survives compaction. Track goals, hypotheses, actions, and results. Independently audited. Actions: create, update, get, list. Include evidence in lastAction for automatic verification (commit hashes, URLs, file paths, commands).",
     parameters: {
       type: "object",
       properties: {
@@ -147,6 +240,20 @@ export default function register(api: any) {
                 description: { type: "string" },
                 result: { type: "string" },
                 date: { type: "string" },
+                evidence: {
+                  type: "array",
+                  description: "Verifiable proof. Each item: {kind: commit|url|file|command, value: string, repo?: string, expect?: string}",
+                  items: {
+                    type: "object",
+                    properties: {
+                      kind: { type: "string", enum: ["commit", "url", "file", "command"] },
+                      value: { type: "string" },
+                      repo: { type: "string" },
+                      expect: { type: "string" },
+                    },
+                    required: ["kind", "value"],
+                  },
+                },
               },
             },
             reviewBy: { type: "string" },
@@ -268,6 +375,22 @@ export default function register(api: any) {
       let totalIssues = 0;
 
       for (const proj of projects) {
+        // Verify evidence against reality before auditing
+        if (proj.lastAction?.evidence?.length) {
+          const vResult = await verifyProjectEvidence(proj);
+          proj.verifications.push({
+            date: new Date().toISOString(),
+            passed: vResult.passed,
+            failed: vResult.failed,
+            details: vResult.details,
+          });
+          // Write back updated evidence state + verification log
+          await writeJson(path.join(cfg.projectsDir, `${proj.id}.json`), proj);
+          if (vResult.failed > 0) {
+            logger.warn?.(`[barnacle] ${proj.id}: ${vResult.failed} evidence check(s) FAILED`);
+          }
+        }
+
         const issues = auditProject(proj, lastSnapshot);
         allIssues.set(proj.id, issues);
         totalIssues += issues.length;
