@@ -25,6 +25,15 @@ interface LastAction {
   evidence?: Evidence[];
 }
 
+interface KPI {
+  name: string;
+  metric: string;
+  baseline: string | null;
+  target: string | null;
+  current: string | null;
+  measuredAt: string | null;
+}
+
 interface Project {
   id: string;
   goal: string;
@@ -34,6 +43,9 @@ interface Project {
   lastAction: LastAction | null;
   reviewBy: string | null;
   limitations: string[];
+  outcome: string | null;
+  outcomeReached: boolean | null;
+  kpis: KPI[];
   verifications: { date: string; passed: number; failed: number; details: string[] }[];
   log: { date: string; action: string; result?: string }[];
   createdAt: string;
@@ -159,6 +171,8 @@ function auditProject(project: Project, lastSnapshot: AuditSnapshot | null): str
   if (!project.nextAction?.trim()) issues.push("⚠️ NO NEXT ACTION");
   if (!project.hypothesis?.trim()) issues.push("⚠️ NO HYPOTHESIS — working without knowing what you're testing");
   if (!project.limitations?.length) issues.push("⚠️ NO LIMITATIONS — every project has constraints, document them");
+  if (!project.outcome?.trim()) issues.push("⚠️ NO OUTCOME — what does success look like?");
+  if (!project.kpis?.length) issues.push("⚠️ NO KPIs — how will you measure progress?");
 
   if (project.reviewBy) {
     const reviewDate = new Date(project.reviewBy).getTime();
@@ -286,6 +300,24 @@ export default function register(api: any) {
               description: "Known limitations of this project — what it can't do, architectural constraints, honest grounding",
               items: { type: "string" },
             },
+            outcome: { type: "string", description: "What success looks like — specific, measurable" },
+            outcomeReached: { type: "boolean", description: "Has the outcome been achieved?" },
+            kpis: {
+              type: "array",
+              description: "Key metrics to track progress. Each: {name, metric, baseline, target, current, measuredAt}",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  metric: { type: "string", description: "How to measure this (command, manual check, etc.)" },
+                  baseline: { type: "string" },
+                  target: { type: "string" },
+                  current: { type: "string" },
+                  measuredAt: { type: "string" },
+                },
+                required: ["name", "metric"],
+              },
+            },
             log: {
               type: "object",
               properties: {
@@ -338,6 +370,9 @@ export default function register(api: any) {
           lastAction: null,
           reviewBy: data.reviewBy || null,
           limitations: data.limitations || [],
+          outcome: data.outcome || null,
+          outcomeReached: null,
+          kpis: data.kpis || [],
           verifications: [],
           log: [{ date: now, action: data.log?.action || "Project created" }],
           createdAt: now,
@@ -360,6 +395,9 @@ export default function register(api: any) {
         if (data?.nextAction) proj.nextAction = data.nextAction;
         if (data?.reviewBy) proj.reviewBy = data.reviewBy;
         if (data?.limitations) proj.limitations = data.limitations;
+        if (data?.outcome) proj.outcome = data.outcome;
+        if (data?.outcomeReached !== undefined) proj.outcomeReached = data.outcomeReached;
+        if (data?.kpis) proj.kpis = data.kpis;
         if (data?.lastAction) {
           proj.lastAction = { ...data.lastAction, date: data.lastAction.date || now };
         }
